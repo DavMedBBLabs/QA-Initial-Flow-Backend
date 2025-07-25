@@ -1,119 +1,95 @@
 # Blackbird QA Backend
 
-A FastAPI-based backend service for managing and processing User Stories (HUs) and test cases, integrating with Azure DevOps and AI services.
+A production-ready FastAPI service that fetches, refines, and tracks **User Stories (HUs)** from Azure DevOps and generates fully-formatted XRay test cases with the help of AI.
 
-## Features
+---
 
-- Fetch and manage User Stories from Azure DevOps
-- AI-powered refinement of User Stories
-- Generate test cases in XRay format
-- Track HU status and feedback
-- Debug endpoints for development
+##  Key Features
 
-## Prerequisites
+• 🔗 Integrates directly with **Azure DevOps** to pull HU metadata  
+• 🧠 Uses **DeepSeek-AI** to refine HU descriptions for clarity  
+• 📝 Outputs ready-to-import **XRay JSON** test cases  
+• 📊 Tracks HU status/feedback through an SQL database  
+• 🔒 OAuth2 (JWT)–protected endpoints  
+• 🛠  Debug routes for rapid inspection while developing
 
-- Python 3.13+
-- Docker (optional, for containerized deployment)
-- Azure DevOps account with appropriate permissions
-- DeepSeek API key
+---
+
+## Quick Start (Local)
+
+```bash
+# 1 — clone
+$ git clone https://github.com/<your-org>/blackbird-qa-backend.git
+$ cd blackbird-qa-backend/riwi_qa_backend
+
+# 2 — prepare Python env (3.11+ recommended)
+$ python -m venv venv && source venv/bin/activate   # Windows: .\venv\Scripts\activate
+
+# 3 — install deps
+$ pip install -r requirements.txt
+
+# 4 — copy env template and fill credentials
+$ cp .env.example .env
+$ nano .env  # or favourite editor
+
+# 5 — run dev server
+$ uvicorn app.main:app --reload
+```
+
+Open `http://127.0.0.1:8000/docs` to explore the API.
+
+---
 
 ## Environment Variables
 
-Create a `.env` file in the project root with the following variables:
+| Variable | Purpose |
+|----------|---------|
+| AZURE_ORGANIZATION | Azure DevOps org slug |
+| AZURE_PROJECT | Azure project name |
+| AZURE_PAT | Personal Access Token with **Work Items (read)** scope |
+| DEEPSEEK_API_KEY | Key for DeepSeek large-language-model |
+| DATABASE_URL | SQLAlchemy URL (`sqlite:///./riwi_qa.db` by default) |
+| JWT_SECRET_KEY | Secret used to sign JWTs |
+| CORS_ORIGINS | Comma-separated allowed origins (optional) |
 
-```env
-# Azure DevOps
-AZURE_ORGANIZATION=your_org
-AZURE_PROJECT=your_project
-AZURE_PAT=your_personal_access_token
+Place them in `.env` or export in your runtime environment.
 
-# DeepSeek AI
-DEEPSEEK_API_KEY=your_deepseek_api_key
+---
 
-# Database (SQLite by default)
-DATABASE_URL=sqlite:///./test.db
-```
+## API Overview
 
-## Installation
+### Authentication Flow
+1. `POST /auth/token` with form data `username` & `password` (dev default: `test` / `test123`).
+2. Receive `{ "access_token": "<jwt>", "token_type": "bearer" }`.
+3. Supply `Authorization: Bearer <jwt>` on subsequent requests.
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd riwi_qa_backend
-   ```
+### Primary Endpoints
 
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: .\venv\Scripts\activate
-   ```
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | / | Root health message |
+| GET | /health | Liveness probe |
+| POST | /hus | Pull HU from Azure and create DB record |
+| GET | /hus | List HUs (`status`, `name`, `azure_id`, `feature`, `module` filters) |
+| GET | /hus/{hu_id} | Retrieve single HU |
+| PATCH | /hus/{hu_id}/status | Update status / feedback |
+| POST | /generate-tests | Produce & send XRay tests |
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Debug (restricted)
+| GET /debug/hus | Full HU dump |
+| GET /debug/hu/{azure_id} | Find HU by Azure ID |
 
-## Running the Application
+Swagger/OpenAPI docs auto-generated at `/docs` and `/redoc`.
 
-### Development Mode
+---
+
+## Database & Migrations
+
+SQLite is used out-of-the-box. Swap to Postgres etc. by editing `DATABASE_URL`.
+
+For schema evolution we recommend **Alembic**:
 
 ```bash
-uvicorn app.main:app --reload
-```
-
-The API will be available at `http://127.0.0.1:8000`
-
-### Production Mode
-
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-## API Documentation
-
-Once the server is running, you can access:
-
-- Interactive API docs: `http://127.0.0.1:8000/docs`
-- Alternative API docs: `http://127.0.0.1:8000/redoc`
-
-## API Endpoints
-
-### User Stories (HUs)
-
-#### Create a new HU
-- **POST** `/api/hus/`
-  - Creates a new User Story by fetching data from Azure DevOps and refining it with AI
-  - Request body: `{ "azure_id": "12345" }`
-
-#### List all HUs
-- **GET** `/api/hus/`
-  - Query parameters:
-    - `status`: Filter by status (optional)
-    - `feature`: Filter by feature (optional)
-    - `module`: Filter by module (optional)
-
-#### Get HU by ID
-- **GET** `/api/hus/{hu_id}`
-  - Returns the details of a specific User Story
-
-#### Update HU Status
-- **PATCH** `/api/hus/{hu_id}/status`
-  - Updates the status of a User Story
-  - Request body: `{ "status": "approved", "feedback": "Optional feedback" }`
-
-### Test Generation
-
-#### Generate and Send Tests
-- **POST** `/api/tests/generate`
-  - Generates test cases for a User Story and sends them to XRay
-  - Request body: 
-    ```json
-    {
-        "xray_path": "path/to/xray/export.json",
-        "azure_id": "12345"
-    }
-    ```
-
 ### Debug Endpoints
 
 #### List All HUs (Debug)
