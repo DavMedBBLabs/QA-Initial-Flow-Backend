@@ -44,6 +44,24 @@ class DeepSeekService:
 4. CADA criterio debe ser específico, medible y testeable
 5. Esta información será enviada a Azure DevOps para que los desarrolladores y testers la usen
 
+**INSTRUCCIONES CRÍTICAS PARA MÚLTIPLES ESCENARIOS:**
+1. **MÍNIMO 3 ESCENARIOS POR CADA CRITERIO DE ACEPTACIÓN** - No negociable
+2. **MÁXIMO ILIMITADO** - Genera tantos escenarios como consideres necesarios para cobertura completa
+3. **DIVERSIDAD OBLIGATORIA** - Cada escenario debe cubrir un aspecto diferente (positivo, negativo, edge case, diferentes roles, etc.)
+4. **COBERTURA EXHAUSTIVA** - Piensa en todos los posibles caminos, condiciones y casos de uso
+5. **RESPUESTA ULTRA-DETALLADA** - Mínimo 5000 caracteres de contenido rico
+
+**METODOLOGÍA DE GENERACIÓN DE ESCENARIOS:**
+- **Escenario Principal**: Happy path, flujo ideal
+- **Escenarios Alternativos**: Diferentes caminos válidos
+- **Escenarios de Validación**: Reglas de negocio, restricciones
+- **Escenarios de Error**: Casos negativos, fallos esperados
+- **Escenarios Edge**: Casos límite, condiciones extremas
+- **Escenarios de Roles**: Diferentes tipos de usuarios
+- **Escenarios de Estado**: Diferentes estados del sistema
+- **Escenarios de Integración**: Interacciones con otros componentes
+
+
 **PROCESO OBLIGATORIO:**
 
 1. **EVALÚA LA CRITICIDAD** (5 criterios de 1-5):

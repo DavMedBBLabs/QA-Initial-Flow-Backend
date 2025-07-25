@@ -67,9 +67,9 @@ def create_hu_endpoint(hu_data: HUCreate, db: Session = Depends(get_db)):
         print(f"🤖 Starting enhanced AI refinement...")
         try:
             refined_text, markdown_text = gemma_service.refine_hu(
-                azure_data['title'], 
-                azure_data['description'], 
-                azure_data['acceptanceCriteria'],
+                azure_data.get('title', ''), 
+                azure_data.get('description', ''), 
+                azure_data.get('acceptanceCriteria', ''),
                 azure_data.get('feature', ''),
                 azure_data.get('module', '')
             )

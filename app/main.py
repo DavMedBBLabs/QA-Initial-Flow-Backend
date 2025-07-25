@@ -27,7 +27,7 @@ app = FastAPI(title="RIWI QA Backend", version="1.0.0")
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://qa-blackbird.diegormdev.site"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
