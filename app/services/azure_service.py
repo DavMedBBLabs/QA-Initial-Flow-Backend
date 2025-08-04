@@ -381,7 +381,7 @@ class AzureService:
         
         html_parts = []
         
-        for i, section in enumerate(sections[:5]):  # Máximo 5 secciones
+        for i, section in enumerate(sections):  # TODAS las secciones sin límite
             # Título de la sección
             title = section_titles[i] if i < len(section_titles) else f"{i+1}. Criterio Adicional"
             html_parts.append(f"<h3>{title}</h3>")
@@ -511,8 +511,10 @@ class AzureService:
     def _format_section_content(self, section_lines: list) -> str:
         """
         Formatea el contenido de una sección como HTML
+        MEJORADO para preservar escenarios individuales
         """
-        formatted_parts = []
+        html_parts = []
+        current_scenario = []
         
         for line in section_lines:
             # Limpiar línea
@@ -524,26 +526,26 @@ class AzureService:
             line = re.sub(r'^#+\s*', '', line)
             line = re.sub(r'^\d+\.\s*', '', line)
             
-            # Formatear palabras clave de Gherkin
-            line = re.sub(r'\b(Escenario|escenario)\b\s*:?', '<strong>Escenario:</strong>', line)
-            line = re.sub(r'\b(Dado|dado)\b\s+que', '<strong>Dado</strong> que', line)
-            line = re.sub(r'\b(Cuando|cuando)\b\s+', '<strong>Cuando</strong> ', line)
-            line = re.sub(r'\b(Entonces|entonces)\b\s+', '<strong>Entonces</strong> ', line)
-            line = re.sub(r'\b(Y|y)\b\s+(?=\w)', '<strong>Y</strong> ', line)
-            line = re.sub(r'(ModoVerificación|Modo de Verificación)\s*:?\s*', '<strong>ModoVerificación:</strong> ', line)
+            # Detectar nuevo escenario
+            is_new_scenario = (
+                'escenario' in line.lower() and 
+                ('principal' in line.lower() or 'alternativo' in line.lower() or 'edge' in line.lower())
+            )
             
-            # Limpiar markdown restante
-            line = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', line)
+            # Si es nuevo escenario y tenemos uno anterior, procesarlo
+            if is_new_scenario and current_scenario:
+                scenario_html = self._format_single_scenario(current_scenario)
+                html_parts.append(f"<p>{scenario_html}</p>")
+                current_scenario = []
             
-            formatted_parts.append(line)
+            current_scenario.append(line)
         
-        content = '<br>'.join(formatted_parts)
+        # Procesar el último escenario
+        if current_scenario:
+            scenario_html = self._format_single_scenario(current_scenario)
+            html_parts.append(f"<p>{scenario_html}</p>")
         
-        # Asegurar que tenga ModoVerificación
-        if 'ModoVerificación' not in content:
-            content += '<br><strong>ModoVerificación:</strong> Manual'
-        
-        return content
+        return ''.join(html_parts)
 
     def _generate_default_criteria_html(self) -> str:
         """
@@ -688,33 +690,27 @@ class AzureService:
 
     def update_hu_in_azure(self, azure_id: str, refined_response: str, markdown_response: str) -> bool:
         """
-        Actualiza una Historia de Usuario en Azure DevOps con los criterios refinados
-        ENVIANDO HTML FORMATEADO
+        Actualiza una Historia de Usuario en Azure DevOps SOLO con los criterios refinados
+        NO MODIFICA LA DESCRIPCIÓN - SOLO ACTUALIZA CRITERIOS DE ACEPTACIÓN
         """
         try:
             azure_id_num = int(azure_id)
         except ValueError:
             raise Exception(f"Azure ID must be a number, got: {azure_id}")
         
-        print(f"🔄 Starting Azure DevOps HTML update for work item {azure_id_num}")
+        print(f"🔄 Starting Azure DevOps CRITERIA-ONLY update for work item {azure_id_num}")
         print(f"   📊 Organization: {self.org}")
         print(f"   📂 Project: {self.project}")
         
-        # ✅ NUEVO: Parsear el contenido refinado a HTML
-        parsed_content = self.parse_refined_content(refined_response)
-        description_html = parsed_content['description']
-        criteria_html = parsed_content['acceptance_criteria']
+        # ✅ NUEVO: Parsear SOLO los criterios de aceptación
+        criteria_html = self.parse_acceptance_criteria_only(refined_response)
         
-        print(f"🎨 HTML content for Azure DevOps:")
-        print(f"   📝 Description HTML: {len(description_html)} characters")
+        print(f"🎨 HTML criteria content for Azure DevOps:")
         print(f"   ✅ Acceptance Criteria HTML: {len(criteria_html)} characters")
         
         # Mostrar preview del HTML
-        desc_preview = description_html[:300] + "..." if len(description_html) > 300 else description_html
         criteria_preview = criteria_html[:300] + "..." if len(criteria_html) > 300 else criteria_html
         
-        print(f"   🎨 Description HTML preview:")
-        print(f"   {desc_preview}")
         print(f"   🎨 Criteria HTML preview:")
         print(f"   {criteria_preview}")
         
@@ -732,7 +728,7 @@ class AzureService:
         
         print(f"✅ Work item retrieved: {current_title} (rev: {current_rev})")
         
-        # ✅ PASO 2: Preparar los datos para actualizar con HTML
+        # ✅ PASO 2: Preparar los datos para actualizar SOLO criterios
         update_url = f"https://dev.azure.com/{self.org}/{self.project}/_apis/wit/workitems/{azure_id_num}?api-version=7.1"
         
         patch_headers = {
@@ -744,7 +740,7 @@ class AzureService:
         from datetime import datetime, timezone
         current_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         
-        # ✅ CORREGIDO: Enviar HTML formateado
+        # ✅ MODIFICADO: Solo actualizar criterios de aceptación
         patch_document = [
             {
                 "op": "test",
@@ -753,27 +749,22 @@ class AzureService:
             },
             {
                 "op": "replace",
-                "path": "/fields/System.Description",
-                "value": description_html  # ✅ HTML formateado para descripción
-            },
-            {
-                "op": "replace",
                 "path": "/fields/Microsoft.VSTS.Common.AcceptanceCriteria",
-                "value": criteria_html  # ✅ HTML formateado para criterios
+                "value": criteria_html  # ✅ SOLO HTML de criterios
             },
             {
                 "op": "add",
                 "path": "/fields/System.Tags",
-                "value": "QA-Refinado;Aprobado;HTML-Formatted"
+                "value": "QA-Refinado;Aprobado;Criterios-Actualizados"
             },
             {
                 "op": "add",
                 "path": "/fields/System.History",
-                "value": f"<p><strong>Historia de Usuario refinada y aprobada por QA automáticamente.</strong></p><p>Fecha: {current_time}</p><p>Formato: HTML con etiquetas semánticas para mejor visualización.</p>"
+                "value": f"<p><strong>Criterios de Aceptación refinados y aprobados por QA automáticamente.</strong></p><p>Fecha: {current_time}</p><p>Actualización: Solo criterios de aceptación (descripción preservada)</p>"
             }
         ]
         
-        print(f"🔧 Sending PATCH with HTML formatted content...")
+        print(f"🔧 Sending PATCH with CRITERIA-ONLY HTML content...")
         
         # ✅ PASO 3: Enviar la petición PATCH
         try:
@@ -785,13 +776,13 @@ class AzureService:
                 updated_work_item = response.json()
                 new_rev = updated_work_item.get('rev', 'Unknown')
                 
-                print(f"✅ Work item {azure_id_num} updated successfully with HTML formatting!")
+                print(f"✅ Work item {azure_id_num} CRITERIA updated successfully!")
                 print(f"   📊 New revision: {new_rev} (was {current_rev})")
-                print(f"   🎨 HTML Description: {len(description_html)} chars")
                 print(f"   🎨 HTML Criteria: {len(criteria_html)} chars")
+                print(f"   📝 Description: PRESERVED (no changes)")
                 
                 if new_rev != current_rev:
-                    print(f"✅ CONFIRMED: HTML content updated correctly in Azure DevOps")
+                    print(f"✅ CONFIRMED: Criteria content updated correctly in Azure DevOps")
                     return True
                 else:
                     print(f"⚠️ WARNING: Revision didn't change")
@@ -805,3 +796,523 @@ class AzureService:
         except Exception as e:
             print(f"❌ Error updating Azure DevOps: {str(e)}")
             raise
+
+    def parse_acceptance_criteria_only(self, refined_content: str) -> str:
+        """
+        Parser que extrae SOLO los criterios de aceptación del contenido refinado
+        y genera HTML formateado para Azure DevOps PRESERVANDO TODOS LOS ESCENARIOS
+        """
+        if not refined_content:
+            return "<p>Sin criterios de aceptación definidos</p>"
+        
+        print(f"🤖 Analizando SOLO criterios de aceptación ({len(refined_content)} chars)...")
+        
+        # Usar IA para extraer SOLO criterios con todos los escenarios
+        ai_result = self._analyze_criteria_only_html(refined_content)
+        
+        if ai_result:
+            print("✅ IA criteria-only analysis exitoso")
+            return ai_result
+        else:
+            print("❌ IA falló, usando fallback para criterios")
+            return self._simple_criteria_fallback_html(refined_content)
+
+    def _analyze_criteria_only_html(self, content: str) -> str:
+        """
+        Usar IA para extraer SOLO los criterios de aceptación 
+        PRESERVANDO TODOS LOS ESCENARIOS sin límites
+        """
+        try:
+            # Importar DeepSeekService dinámicamente para evitar imports circulares
+            from .deepseek_service import DeepSeekService
+            gemma_service = DeepSeekService()
+            
+            # Prompt ESPECÍFICO para extraer SOLO criterios con TODOS los escenarios
+            prompt = f"""Analiza este contenido de historia de usuario y extrae SOLO los criterios de aceptación, convirtiéndolos al formato HTML específico que requiere Azure DevOps.
+
+    CONTENIDO PARA ANALIZAR:
+    {content}
+
+    INSTRUCCIONES CRÍTICAS:
+    1. SOLO extrae los criterios de aceptación (NO la descripción)
+    2. PRESERVA TODOS LOS ESCENARIOS sin omitir ninguno
+    3. NO limites el número de secciones ni escenarios
+    4. Mantén la estructura original de categorías
+    5. Convierte a HTML válido para Azure DevOps
+
+    FORMATO HTML REQUERIDO PARA CRITERIOS:
+    - Títulos con <h3> para cada sección (1. Intención Macro, 2. Flujo Funcional, etc.)
+    - Párrafos <p> con escenarios completos
+    - <strong> para Given/When/Then/Y/Escenario/ModoVerificación
+    - <br> para saltos de línea dentro del mismo párrafo
+    - SEPARAR CADA ESCENARIO EN UN PÁRRAFO DIFERENTE
+
+    EJEMPLO DEL FORMATO HTML EXACTO:
+    <h3>1. Intención Macro (Propuesta de Valor)</h3>
+    <p><strong>Escenario Principal:</strong> Duplicación exitosa de un lote con nueva referencia<br>
+    <strong>Dado</strong> que el administrador completa correctamente el formulario de duplicación con una referencia única<br>
+    <strong>Cuando</strong> presiona el botón "Guardar"<br>
+    <strong>Entonces</strong> el sistema debe mostrar un mensaje de éxito: "Lote duplicado con éxito"<br>
+    <strong>Y</strong> debe agregarse inmediatamente una nueva tarjeta de producto visible en la interfaz<br>
+    <strong>ModoVerificación:</strong> Automático con validación de mensaje y presencia de tarjeta</p>
+
+    <p><strong>Escenario Alternativo:</strong> Duplicación con modificación de otros campos<br>
+    <strong>Dado</strong> que el administrador modifica campos adicionales además de la referencia<br>
+    <strong>Cuando</strong> guarda el formulario<br>
+    <strong>Entonces</strong> el nuevo lote debe reflejar los cambios realizados<br>
+    <strong>Y</strong> mantener la integridad de los datos no modificados<br>
+    <strong>ModoVerificación:</strong> Manual con comparación de datos originales y duplicados</p>
+
+    <p><strong>Escenario Edge:</strong> Duplicación de lote con multimedia compleja<br>
+    <strong>Dado</strong> que el lote original contiene múltiples imágenes y variantes<br>
+    <strong>Cuando</strong> se duplica el lote<br>
+    <strong>Entonces</strong> todas las multimedia y variantes deben copiarse correctamente<br>
+    <strong>Y</strong> no deben afectar al lote original<br>
+    <strong>ModoVerificación:</strong> Manual con revisión de contenido multimedia en ambos lotes</p>
+
+    <h3>2. Flujo Funcional Completo</h3>
+    <p><strong>Escenario Principal:</strong> Formulario prellenado correctamente<br>
+    <strong>Dado</strong> que el administrador selecciona "Duplicar" en un lote con datos completos<br>
+    <strong>Cuando</strong> se abre el formulario de duplicación<br>
+    <strong>Entonces</strong> todos los campos deben estar prellenados con los valores del lote original<br>
+    <strong>Y</strong> el campo "Referencia" debe estar vacío y marcado como obligatorio<br>
+    <strong>ModoVerificación:</strong> Automático con validación de campos prellenados</p>
+
+    REGLAS CRÍTICAS:
+    - PRESERVA TODOS LOS ESCENARIOS (Principal, Alternativo, Edge, etc.)
+    - NO omitas ningún escenario por limitaciones de espacio
+    - SEPARA cada escenario en un párrafo <p> diferente
+    - Mantén la estructura de categorías original
+    - Usa <h3> para títulos de secciones
+    - Usa <strong> para palabras clave de Gherkin
+    - Usa <br> para saltos de línea dentro del mismo párrafo
+    - RESPONDE SOLO EL HTML DE CRITERIOS, sin descripción
+
+    RESPONDE SOLO EL HTML DE CRITERIOS DE ACEPTACIÓN:
+    """
+            payload = {
+                "model": "mistralai/mistral-small-3.2-24b-instruct",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 6000,  # Aumentado para manejar más escenarios
+                "temperature": 0.1  # Muy baja para ser consistente
+            }
+
+            print("📡 Enviando a IA para extraer SOLO criterios...")
+            response = requests.post(
+                gemma_service.base_url,
+                headers=gemma_service.headers,
+                json=payload,
+                timeout=60  # Aumentado timeout
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                ai_response = result['choices'][0]['message']['content'].strip()
+                
+                print(f"📝 IA criteria response: {len(ai_response)} chars")
+                
+                # Limpiar respuesta
+                clean_response = ai_response.replace('```html', '').replace('```', '').strip()
+                
+                # Validar que contenga HTML de criterios
+                if ('<h3>' in clean_response or '<p>' in clean_response) and 'Escenario' in clean_response:
+                    print(f"✅ IA criteria HTML parsing exitoso - {len(clean_response)} chars")
+                    
+                    # Mostrar preview del HTML generado
+                    print(f"🎨 HTML Criteria preview:")
+                    print(f"{clean_response[:500]}...")
+                    
+                    return clean_response
+                else:
+                    print("⚠️ IA no generó HTML de criterios válido")
+            
+            else:
+                print(f"❌ IA API error: {response.status_code}")
+        
+        except Exception as e:
+            print(f"❌ Error en IA criteria HTML: {e}")
+        
+        return None
+
+    def _simple_criteria_fallback_html(self, content: str) -> str:
+        """
+        Fallback que genera HTML básico para criterios cuando la IA falla
+        PRESERVANDO TODOS LOS ESCENARIOS POSIBLES
+        """
+        print("🔄 Fallback HTML para criterios mejorado...")
+        
+        # PASO 1: Limpiar y normalizar el contenido
+        content = self._clean_and_normalize_content(content)
+        
+        # PASO 2: Extraer solo la sección de criterios
+        criteria_section = self._extract_criteria_section(content)
+        
+        if not criteria_section:
+            print("⚠️ No se encontraron criterios, usando plantilla")
+            return self._generate_default_criteria_html()
+        
+        # PASO 3: Generar HTML de criterios preservando todos los escenarios
+        criteria_html = self._generate_complete_criteria_html(criteria_section)
+        
+        print(f"✅ Fallback criteria HTML generado: {len(criteria_html)} chars")
+        
+        return criteria_html
+
+    def _extract_criteria_section(self, content: str) -> str:
+        """
+        Extrae solo la sección de criterios de aceptación del contenido
+        SOPORTE BILINGÜE: Español e Inglés
+        """
+        print("🔍 Extrayendo sección de criterios (bilingüe)...")
+        
+        # Buscar marcadores de criterios en ESPAÑOL
+        criteria_markers_spanish = [
+            'CRITERIOS DE ACEPTACIÓN DETALLADOS',
+            'CRITERIOS DE ACEPTACIÓN',
+            '## CRITERIOS DE ACEPTACIÓN',
+            '### CRITERIOS DE ACEPTACIÓN',
+            '1. Intención Macro',
+            '2. Flujo Funcional',
+            '### 1. Intención Macro',
+            '### 2. Flujo Funcional',
+            '### 3. Interacción',
+            '### 4. Validación',
+            '### 5. Casos'
+        ]
+        
+        # Buscar marcadores de criterios en INGLÉS
+        criteria_markers_english = [
+            'ACCEPTANCE CRITERIA (use Gherkin syntax)',
+            'ACCEPTANCE CRITERIA',
+            '## ACCEPTANCE CRITERIA',
+            '### ACCEPTANCE CRITERIA',
+            '1. Business Value Scenario',
+            '2. Complete Functional Flow',
+            '### 1. Business Value Scenario',
+            '### 2. Complete Functional Flow',
+            '### 3. UI Interaction',
+            '### 4. Data Validation',
+            '### 5. Edge Cases'
+        ]
+        
+        # Combinar todos los marcadores
+        criteria_markers = criteria_markers_spanish + criteria_markers_english
+        
+        lines = content.split('\n')
+        start_index = -1
+        
+        # Buscar el inicio de criterios
+        for i, line in enumerate(lines):
+            line_lower = line.lower().strip()
+            for marker in criteria_markers:
+                if marker.lower() in line_lower:
+                    start_index = i
+                    print(f"✅ Encontrado inicio de criterios en línea {i}: '{line[:50]}...'")
+                    break
+            if start_index != -1:
+                break
+        
+        # Si no encontramos marcadores específicos, buscar por contenido (bilingüe)
+        if start_index == -1:
+            for i, line in enumerate(lines):
+                # Buscar en español
+                if (('criterios' in line.lower() and 'aceptación' in line.lower()) or \
+                    ('intención macro' in line.lower()) or \
+                    ('flujo funcional' in line.lower())):
+                    start_index = i
+                    print(f"✅ Encontrado inicio de criterios por contenido (ES) en línea {i}: '{line[:50]}...'")
+                    break
+                # Buscar en inglés
+                elif (('acceptance criteria' in line.lower()) or \
+                      ('business value scenario' in line.lower()) or \
+                      ('complete functional flow' in line.lower())):
+                    start_index = i
+                    print(f"✅ Encontrado inicio de criterios por contenido (EN) en línea {i}: '{line[:50]}...'")
+                    break
+        
+        if start_index == -1:
+            print("⚠️ No se encontró sección de criterios")
+            return ""
+        
+        # Extraer desde el inicio hasta el final o hasta el siguiente marcador
+        criteria_lines = []
+        for i in range(start_index, len(lines)):
+            line = lines[i].strip()
+            
+            # Detectar fin de criterios (nuevo marcador de sección) - BILINGÜE
+            if (i > start_index and 
+                (line.startswith('## ') or 
+                 line.startswith('### ') or
+                 'CONSIDERACIONES TÉCNICAS' in line.upper() or
+                 'CRITERIOS DE DONE' in line.upper() or
+                 'TECHNICAL CONSIDERATIONS' in line.upper() or
+                 'DONE CRITERIA' in line.upper())):
+                # Solo romper si es una nueva sección principal, no subsecciones
+                spanish_keywords = ['intención macro', 'flujo funcional', 'interacción', 'validación', 'casos']
+                english_keywords = ['business value scenario', 'complete functional flow', 'ui interaction', 'data validation', 'edge cases']
+                all_keywords = spanish_keywords + english_keywords
+                
+                if not any(keyword in line.lower() for keyword in all_keywords):
+                    break
+            
+            criteria_lines.append(line)
+        
+        criteria_text = '\n'.join(criteria_lines)
+        print(f"✅ Sección de criterios extraída: {len(criteria_text)} chars")
+        
+        return criteria_text
+
+    def _generate_complete_criteria_html(self, criteria_section: str) -> str:
+        """
+        Genera HTML completo para criterios preservando TODOS los escenarios
+        """
+        print("✅ Generando criterios HTML completos...")
+        
+        # Asegurar que criteria_section sea una lista de líneas
+        if isinstance(criteria_section, str):
+            lines = criteria_section.split('\n')
+        else:
+            lines = criteria_section
+        
+        # Agrupar líneas en secciones
+        sections = self._group_criteria_sections_complete(lines)
+        
+        if not sections:
+            print("⚠️ No se encontraron secciones de criterios, usando plantilla")
+            return self._generate_default_criteria_html()
+        
+        html_parts = []
+        
+        # Procesar TODAS las secciones sin límite
+        for i, section in enumerate(sections):
+            # Título de la sección
+            section_title = self._extract_section_title(section)
+            if section_title:
+                html_parts.append(f"<h3>{section_title}</h3>")
+            
+            # Contenido de la sección con TODOS los escenarios
+            section_html = self._format_section_content_complete(section)
+            html_parts.append(section_html)
+        
+        return ''.join(html_parts)
+
+    def _group_criteria_sections_complete(self, lines: list) -> list:
+        """
+        Agrupa las líneas de criterios en secciones SIN LÍMITES
+        SOPORTE BILINGÜE: Español e Inglés
+        """
+        sections = []
+        current_section = []
+        
+        # Palabras clave en español
+        spanish_keywords = [
+            'intención macro', 'flujo funcional', 'interacción', 
+            'validación', 'casos de borde', 'casos límite', 'componentes ui',
+            'datos y reglas', 'manejo de errores'
+        ]
+        
+        # Palabras clave en inglés
+        english_keywords = [
+            'business value scenario', 'complete functional flow', 'ui interaction',
+            'data validation', 'edge cases', 'error handling', 'components ui',
+            'data and rules', 'technical considerations'
+        ]
+        
+        # Combinar todas las palabras clave
+        all_keywords = spanish_keywords + english_keywords
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Detectar nueva sección
+            is_new_section = (
+                line.startswith('###') or
+                line.startswith('##') or
+                re.match(r'^\d+\.\s+[A-Z]', line) or
+                any(keyword in line.lower() for keyword in all_keywords)
+            )
+            
+            if is_new_section and current_section:
+                sections.append(current_section)
+                current_section = []
+            
+            current_section.append(line)
+        
+        if current_section:
+            sections.append(current_section)
+        
+        print(f"✅ Secciones de criterios encontradas: {len(sections)}")
+        return sections
+
+    def _extract_section_title(self, section_lines: list) -> str:
+        """
+        Extrae el título de una sección de criterios
+        SOPORTE BILINGÜE: Mejor manejo de markdown
+        """
+        for line in section_lines:
+            line = line.strip()
+            if (line.startswith('###') or 
+                line.startswith('##') or 
+                re.match(r'^\d+\.\s+[A-Z]', line)):
+                # Limpiar el título - manejar mejor los signos de markdown
+                title = re.sub(r'^#+\s*', '', line)
+                title = re.sub(r'^\d+\.\s*', '', title)
+                # Limpiar cualquier markdown restante
+                title = re.sub(r'\*\*([^*]+)\*\*', r'\1', title)  # Remover **texto**
+                title = re.sub(r'\*([^*]+)\*', r'\1', title)      # Remover *texto*
+                title = re.sub(r'`([^`]+)`', r'\1', title)        # Remover `texto`
+                return title.strip()
+        return ""
+
+    def _format_section_content_complete(self, section_lines: list) -> str:
+        """
+        Formatea el contenido de una sección como HTML preservando TODOS los escenarios
+        SOPORTE BILINGÜE: Mejor manejo de markdown en inglés y español
+        """
+        html_parts = []
+        current_scenario = []
+        
+        for line in section_lines:
+            # Limpiar línea
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Verificar si es un título de sección (no procesar como escenario)
+            original_line = line
+            is_section_title = line.startswith('###') or line.startswith('##') or re.match(r'^\d+\.\s+[A-Z]', line)
+            
+            # Limpiar títulos de sección - manejar mejor markdown
+            line = re.sub(r'^#+\s*', '', line)
+            line = re.sub(r'^\d+\.\s*', '', line)
+            
+            # Detectar nuevo escenario - BILINGÜE (solo si no es título de sección)
+            is_new_scenario = (
+                not is_section_title and
+                (('escenario' in line.lower() or 'scenario' in line.lower()) and
+                 (':' in line or line.strip().endswith(':')))
+            )
+            
+            # Si es nuevo escenario y tenemos uno anterior, procesarlo
+            if is_new_scenario and current_scenario:
+                scenario_html = self._format_single_scenario(current_scenario)
+                html_parts.append(f"<p>{scenario_html}</p>")
+                # Agregar salto de línea real entre escenarios
+                html_parts.append("\n")
+                current_scenario = []
+            
+            # Solo agregar líneas que no sean títulos de sección al escenario actual
+            if not is_section_title:
+                current_scenario.append(line)
+        
+        # Procesar el último escenario
+        if current_scenario:
+            scenario_html = self._format_single_scenario(current_scenario)
+            html_parts.append(f"<p>{scenario_html}</p>")
+        
+        return ''.join(html_parts)
+
+    def _format_single_scenario(self, scenario_lines: list) -> str:
+        """
+        Formatea un escenario individual como HTML
+        SOPORTE BILINGÜE: Detecta idioma y usa palabras clave correspondientes
+        """
+        formatted_parts = []
+        
+        # Detectar idioma del contenido descriptivo (ignorar palabras clave Gherkin originales)
+        content_text = ' '.join(scenario_lines).lower()
+        
+        # Palabras de contenido en inglés (dominantes en el contenido del usuario)
+        english_content_words = ['user', 'admin', 'projects', 'page', 'system', 'widgets', 'dashboard', 'company', 'visibility', 'approval', 'margin', 'portfolio', 'health', 'status', 'filter', 'sort', 'table', 'card', 'view', 'data', 'export', 'timeline', 'permission', 'access', 'control', 'validation', 'error', 'performance', 'real-time', 'update', 'refresh', 'session', 'preference', 'toggle', 'persistence', 'pagination', 'scroll', 'responsive', 'mobile', 'desktop', 'tablet', 'role', 'opens', 'sees', 'displays', 'aggregates', 'restricted', 'tied', 'visible', 'widget', 'badge', 'count', 'buttons', 'enabled', 'disappears', 'decrements', 'sorts', 'filters', 'needs', 'attention', 'consistent', 'aligns', 'optimizing', 'opportunities', 'orders', 'descending', 'updates', 'accordingly', 'applied', 'layout', 'loads', 'sections', 'render', 'order', 'default', 'sorting', 'recently', 'used', 'session', 'first', 'time', 'toggles', 'saves', 'preference', 'persists', 'maintains', 'chips', 'clear', 'removes', 'restores', 'dataset', 'size', 'selector', 'items', 'showing', 'controls', 'reflect', 'actions', 'details', 'edit', 'timeline', 'triggers', 'navigation', 'interaction', 'display', 'truncated', 'description', 'logo', 'label', 'color', 'progress', 'estimated', 'favorite', 'star', 'menu', 'button', 'grid', 'columns', 'header', 'sticky', 'sortable', 'toggling', 'horizontal', 'alphabetically', 'ascending', 'reverses', 'numerical', 'percentage', 'timestamp', 'stars', 'appears', 'favorites', 'link', 'un-starring', 'removes', 'real', 'planning', 'start', 'dates', 'within', 'days', 'lists', 'sorted', 'nearest', 'qualify', 'shows', 'color', 'coding', 'values', 'equals', 'count', 'distribution', 'pie', 'aligns', 'reflects', 'completed', 'cancelled', 'ratio', 'utilization', 'active', 'consistent', 'scope', 'requesting', 'returned', 'queries', 'attempts', 'denied', 'becomes', 'higher', 'approved', 'rejected', 'removed', 'types', 'search', 'bar', 'executes', 'contains', 'case-insensitive', 'tokenized', 'highlighted', 'terms', 'matched', 'optional', 'correct', 'calculated', 'duration', 'range', 'numeric', 'between', 'matches', 'visual', 'empty', 'exists', 'illustration', 'create', 'hidden', 'cannot', 'overly', 'restrictive', 'returns', 'results', 'display', 'suggestions', 'adjust', 'large', 'dataset', 'exists', 'applied', 'server-side', 'indexed', 'acceptable', 'sla', 'skeleton', 'loaders', 'progressive', 'jank', 'approves', 'another', 'viewing', 'count', 'list', 'updates', 'reload', 'network', 'occurs', 'triggers', 'toast', 'failed', 'retry', 'duplicate', 'download', 'initiated', 'rate', 'limiting', 'prevents', 'rapid', 'calls', 'without', 'edit', 'permissions', 'disabled', 'attempting', 'navigate', 'directly', 'returns', 'reduces', 'fewer', 'resets', 'accurately', 'sets', 'earlier', 'validation', 'appears', 'corrected', 'minimum', 'exceed', 'maximum', 'values', 'corrected', 'applying', 'narrow', 'viewport', 'horizontally', 'fixed', 'remaining', 'smoothly', 'overlap']
+        
+        # Palabras de contenido en español
+        spanish_content_words = ['usuario', 'administrador', 'proyectos', 'página', 'sistema', 'widgets', 'panel', 'empresa', 'visibilidad', 'aprobación', 'margen', 'portafolio', 'salud', 'estado', 'filtro', 'ordenar', 'tabla', 'tarjeta', 'vista', 'datos', 'exportar', 'línea', 'permiso', 'acceso', 'control', 'validación', 'error', 'rendimiento', 'tiempo', 'actualizar', 'refrescar', 'sesión', 'preferencia', 'alternar', 'persistencia', 'paginación', 'desplazamiento', 'responsivo', 'móvil', 'escritorio', 'tableta']
+        
+        # Contar palabras de contenido de cada idioma
+        english_content_count = sum(1 for word in english_content_words if word in content_text)
+        spanish_content_count = sum(1 for word in spanish_content_words if word in content_text)
+        
+        # Si hay más contenido en inglés que en español, usar inglés
+        # Si hay empate o más español, usar español
+        use_english = english_content_count > spanish_content_count
+        
+        # Debug: Imprimir información de detección (solo en desarrollo)
+        # print(f"🔍 DEBUG: Detección de idioma para escenario:")
+        # print(f"   📊 Palabras en inglés: {english_content_count}")
+        # print(f"   📊 Palabras en español: {spanish_content_count}")
+        # print(f"   🌐 Usando inglés: {use_english}")
+        # print(f"   📝 Contenido: {content_text[:100]}...")
+        
+        for line in scenario_lines:
+            # Limpiar línea
+            line = line.strip()
+            if not line:
+                continue
+            
+            if use_english:
+                # REEMPLAZAR palabras clave de español a inglés y formatear
+                line = re.sub(r'\b(Escenario|escenario)\b\s*:?', '<strong>Scenario:</strong>', line)
+                line = re.sub(r'\b(Dado|dado)\b\s+', '<strong>Given</strong> ', line)
+                line = re.sub(r'\b(Cuando|cuando)\b\s+', '<strong>When</strong> ', line)
+                line = re.sub(r'\b(Entonces|entonces)\b\s+', '<strong>Then</strong> ', line)
+                line = re.sub(r'\b(Y|y)\b\s+(?=\w)', '<strong>And</strong> ', line)
+                line = re.sub(r'(ModoVerificación|Modo de Verificación)\s*:?\s*', '<strong>VerificationMode:</strong> ', line)
+                
+                # También formatear palabras clave que ya estén en inglés
+                line = re.sub(r'\*\*(Scenario|scenario)\*\*\s*:?', '<strong>Scenario:</strong>', line)
+                line = re.sub(r'\*\*(Given|given)\*\*\s+', '<strong>Given</strong> ', line)
+                line = re.sub(r'\*\*(When|when)\*\*\s+', '<strong>When</strong> ', line)
+                line = re.sub(r'\*\*(Then|then)\*\*\s+', '<strong>Then</strong> ', line)
+                line = re.sub(r'\*\*(And|and)\*\*\s+(?=\w)', '<strong>And</strong> ', line)
+                line = re.sub(r'\*\*(VerificationMode|Verification Mode)\*\*\s*:?\s*', '<strong>VerificationMode:</strong> ', line)
+                
+                line = re.sub(r'\b(Scenario|scenario)\b\s*:?', '<strong>Scenario:</strong>', line)
+                line = re.sub(r'\b(Given|given)\b\s+', '<strong>Given</strong> ', line)
+                line = re.sub(r'\b(When|when)\b\s+', '<strong>When</strong> ', line)
+                line = re.sub(r'\b(Then|then)\b\s+', '<strong>Then</strong> ', line)
+                line = re.sub(r'\b(And|and)\b\s+(?=\w)', '<strong>And</strong> ', line)
+                line = re.sub(r'(VerificationMode|Verification Mode)\s*:?\s*', '<strong>VerificationMode:</strong> ', line)
+            else:
+                # Formatear palabras clave de Gherkin en ESPAÑOL
+                line = re.sub(r'\b(Escenario|escenario)\b\s*:?', '<strong>Escenario:</strong>', line)
+                line = re.sub(r'\b(Dado|dado)\b\s+que', '<strong>Dado</strong> que', line)
+                line = re.sub(r'\b(Cuando|cuando)\b\s+', '<strong>Cuando</strong> ', line)
+                line = re.sub(r'\b(Entonces|entonces)\b\s+', '<strong>Entonces</strong> ', line)
+                line = re.sub(r'\b(Y|y)\b\s+(?=\w)', '<strong>Y</strong> ', line)
+                line = re.sub(r'(ModoVerificación|Modo de Verificación)\s*:?\s*', '<strong>ModoVerificación:</strong> ', line)
+            
+            # Evitar doble formateo de palabras clave - limpiar completamente
+            while '<strong><strong>' in line:
+                line = line.replace('<strong><strong>', '<strong>')
+            while '</strong></strong>' in line:
+                line = line.replace('</strong></strong>', '</strong>')
+            
+            # Limpiar espacios extra después de VerificationMode
+            line = re.sub(r'<strong>VerificationMode:</strong>\s*</strong>\s*', '<strong>VerificationMode:</strong> ', line)
+            
+            # Limpiar markdown restante - MEJORADO
+            line = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', line)  # **texto** -> <strong>texto</strong>
+            line = re.sub(r'\*([^*]+)\*', r'<em>\1</em>', line)              # *texto* -> <em>texto</em>
+            line = re.sub(r'`([^`]+)`', r'<code>\1</code>', line)            # `texto` -> <code>texto</code>
+            
+            # Limpiar cualquier markdown de títulos que haya quedado
+            line = re.sub(r'^#+\s*', '', line)  # Remover # al inicio
+            line = re.sub(r'^\d+\.\s*', '', line)  # Remover numeración al inicio
+            
+            formatted_parts.append(line)
+        
+        content = '<br>'.join(formatted_parts)
+        
+        # Asegurar que tenga ModoVerificación/VerificationMode
+        if 'ModoVerificación' not in content and 'VerificationMode' not in content:
+            if use_english:
+                content += '<br><strong>VerificationMode:</strong> Manual'
+            else:
+                content += '<br><strong>ModoVerificación:</strong> Manual'
+        
+        # Agregar salto de línea real al final del escenario
+        content += '\n'
+        
+        return content

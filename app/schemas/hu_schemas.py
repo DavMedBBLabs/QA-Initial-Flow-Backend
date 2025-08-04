@@ -1,8 +1,9 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 class HUCreate(BaseModel):
     azure_id: str
+    language: Optional[str] = 'es'  # 'es' = español, 'en' = inglés
 
 class HUStatusUpdate(BaseModel):
     status: str
@@ -18,8 +19,13 @@ class HUResponse(BaseModel):
     markdown_response: Optional[str]  # Cambiado de dict a str
     feature: Optional[str]  # Nuevo campo
     module: Optional[str]  # Nuevo campo
+    language: Optional[str] = 'es'  # Nuevo campo para idioma
     created_at: Optional[str]
     updated_at: Optional[str]
+
+class HUListResponse(BaseModel):
+    data: List[HUResponse]
+    message: str
 
 class TestGenerationRequest(BaseModel):
     xray_path: str

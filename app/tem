@@ -1,0 +1,80 @@
+Descripción:
+
+Permite al administrador abrir un modal con el historial de pedidos de un dropshipper específico, donde se muestra cada pedido, su ganancia y estado.
+
+Rol del usuario: Administrador
+
+Flujo de usuario:
+
+
+El administrador hace clic en “Ver historial” de un dropshipper.
+
+Se abre un modal con la lista de pedidos de ese dropshipper en el mes seleccionado.
+
+<!-- Puede navegar por páginas del historial. -->
+
+Visualiza: ID Pedido, Fecha, Cliente, Productos, Ganancia, Estado del pedido.
+
+Figma: https://www.figma.com/proto/pgiaqnUPOnU6VOWX7oVJw0/DeUna-Dropshipping?page-id=120%3A403&node-id=927-11641&viewport=-1372%2C-733%2C0.43&t=LzaqRRI6j5lvgqt3-1&scaling=scale-down-width&content-scaling=fixed&starting-point-node-id=927%3A11641
+
+     1. Intención del usuario (macro-intención)
+
+Escenario: Acceder al historial de pedidos desde la lista de dropshippers
+Dado que el administrador visualiza la tabla de dropshippers
+Cuando hace clic en el botón “Ver historial” de una fila específica
+Entonces el sistema debe desplegar un modal
+Y debe cargar la lista de pedidos correspondientes al dropshipper seleccionado
+
+     2. Flujo funcional completo
+Escenario: Mostrar datos detallados del historial en el modal
+Dado que el modal se ha desplegado correctamente
+Cuando se muestran los pedidos históricos del dropshipper
+Entonces cada fila debe incluir los siguientes campos visibles:
+- ID del pedido
+- Fecha del pedido
+- Nombre del cliente
+- Lista de productos (resumida o scrollable)
+- Ganancia generada
+- Estado del pedido (“Entregado”, “Cancelado”, “En proceso”, etc.)
+Y debe visualizarse una fila por pedido.
+
+Escenario: Paginación del historial de pedidos
+Dado que el historial del dropshipper contiene más de 20 pedidos
+Cuando el administrador navega utilizando los controles “Anterior” y “Siguiente”
+Entonces el sistema debe mantener el filtro de mes activo
+Y cargar la siguiente página del historial con sus respectivos pedidos
+Y si no hay más páginas, el botón correspondiente (“Siguiente” o “Anterior”) debe deshabilitarse.
+
+Escenario: Visualizar historial por mes seleccionado
+Dado que el administrador desea consultar un periodo específico
+Cuando selecciona un mes en el filtro dentro del modal
+Entonces el sistema debe actualizar los pedidos mostrados para reflejar únicamente aquellos del mes seleccionado
+Y si no hay pedidos en ese periodo, debe mostrar el mensaje: “No se encontraron pedidos para el mes seleccionado”.
+
+     3. Interacción de componentes UI
+Escenario: Mostrar estados y estructura de pedidos de forma accesible
+Dado que el modal está desplegado con múltiples pedidos listados
+Cuando se muestra cada fila de pedido
+Entonces los estados deben representarse visualmente (ej. mediante chips de colores)
+Y la lista debe tener scroll interno si excede el alto del modal
+Y cada columna debe estar alineada con un encabezado fijo en la parte superior del modal.
+
+     4. Validación de datos y reglas
+Escenario: Asegurar consistencia de la información mostrada
+Dado que se listan los pedidos del dropshipper
+Cuando se carga el historial
+Entonces el sistema debe mostrar datos verificados y actualizados desde la base de datos
+Y no debe mostrar registros duplicados o con valores nulos en campos obligatorios como ID de pedido, fecha o estado.
+
+     5. Casos de borde y errores esperables
+Escenario: Fallo al cargar historial de pedidos
+Dado que el administrador hace clic en “Ver historial”
+Y ocurre un error al consultar los pedidos (por ejemplo, error de red o de backend)
+Cuando el modal intenta mostrar la información
+Entonces debe mostrarse un mensaje: “No fue posible cargar el historial. Intenta nuevamente”
+Y ofrecer un botón para reintentar sin cerrar el modal.
+
+
+
+
+
