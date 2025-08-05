@@ -3,9 +3,13 @@ from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from .schemas import TokenData, UserInDB
+from .schemas import TokenData, UserInDB, UserResponse
+from ..database.connection import get_db
+from ..database.models import User
+from sqlalchemy.orm import Session
 import os
 from dotenv import load_dotenv
+from passlib.context import CryptContext
 
 # Cargar variables de entorno
 load_dotenv()
@@ -17,35 +21,34 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 3000
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
-# Usuario de prueba (en producción, esto debería estar en una base de datos)
-fake_users_db = {
-    "test": {
-        "username": "test",
-        "email": "test@example.com",
-        "password": "test123",  # Contraseña en texto plano SOLO para pruebas
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc)
-    }
-}
+# Configuración de encriptación
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def get_user(username: str) -> Optional[UserInDB]:
-    """Obtiene un usuario de la base de datos ficticia"""
-    if username in fake_users_db:
-        user_dict = fake_users_db[username]
-        return UserInDB(**user_dict)
-    return None
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifica una contraseña contra su hash"""
+    return pwd_context.verify(plain_password, hashed_password)
 
-def authenticate_user(username: str, password: str) -> Optional[UserInDB]:
+def get_password_hash(password: str) -> str:
+    """Genera el hash de una contraseña"""
+    return pwd_context.hash(password)
+
+def get_user_by_username(db: Session, username: str) -> Optional[User]:
+    """Obtiene un usuario de la base de datos por username"""
+    return db.query(User).filter(User.username == username).first()
+
+def get_user_by_email(db: Session, email: str) -> Optional[User]:
+    """Obtiene un usuario de la base de datos por email"""
+    return db.query(User).filter(User.email == email).first()
+
+def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
     """Autentica un usuario con nombre de usuario y contraseña"""
     print(f"Autenticando usuario: {username}")  # Debug
-    user = get_user(username)
+    user = get_user_by_username(db, username)
     if not user:
         print(f"Usuario no encontrado: {username}")  # Debug
         return None
     
-    # Comparación directa de contraseñas (solo para pruebas)
-    if password != user.password:
+    if not verify_password(password, user.hashed_password):
         print(f"Contraseña incorrecta para el usuario: {username}")  # Debug
         return None
         
@@ -59,7 +62,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserInDB:
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     """Obtiene el usuario actual a partir del token JWT"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -77,14 +80,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserInDB:
         print(f"Error al decodificar el token: {e}")  # Debug
         raise credentials_exception
     
-    user = get_user(username=token_data.username)
+    user = get_user_by_username(db, username=token_data.username)
     if user is None:
         print(f"Usuario no encontrado en la base de datos: {token_data.username}")  # Debug
         raise credentials_exception
         
     return user
 
-async def get_current_active_user(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
+async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
     """Verifica que el usuario esté activo"""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Usuario inactivo")
