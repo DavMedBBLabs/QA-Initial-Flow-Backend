@@ -371,52 +371,61 @@ class DeepSeekService:
         prompt = f"""Eres un experto QA especializado en generación de casos de test. Tu tarea es generar casos de test en formato XRay/Jira basados en la Historia de Usuario refinada proporcionada.
 
 **HISTORIA DE USUARIO REFINADA:**
-{refined_response}
+{{refined_response}}
 
 **INFORMACIÓN DEL TEST:**
-- **Ruta XRay**: {xray_path}
-- **HU ID**: {azure_id}
+- **Ruta XRay**: {{xray_path}}
+- **HU ID**: {{azure_id}}
 
 **INSTRUCCIONES PARA GENERACIÓN DE TESTS:**
 
 1. **ANALIZA LA HU REFINADA**: Identifica todos los criterios de aceptación, escenarios principales, casos edge y validaciones.
 
-2. **GENERA MÍNIMO 4-6 CASOS DE TEST** que cubran:
-   - Flujo principal (happy path)
-   - Casos de validación y reglas de negocio
-   - Casos límite (edge cases)
-   - Manejo de errores
-   - Casos negativos
+2. GENERA LA MAYOR CANTIDAD POSIBLE DE CASOS DE TEST.
+   • Cubre flujo principal, validaciones, casos límite, escenarios negativos, manejo de errores, UI/UX, móvil, red y seguridad.  
+   • Procura un caso de test por cada criterio/escenario identificado.
 
-3. **FORMATO DE SALIDA REQUERIDO**: Debes responder ÚNICAMENTE con un array JSON válido. Cada test case debe tener esta estructura:
+3. **FORMATO DE SALIDA REQUERIDO**  
+Devuelve **UN OBJETO JSON** con las tres claves siguientes; cada clave contiene una lista de test cases:
 
 ```json
-[
-  {{
-    "testtype": "Manual",
-    "fields": {{
-      "summary": "Título corto y descriptivo del test case",
-      "description": "Descripción detallada del objetivo del test",
-      "project": {{"key": "DEUN"}},
-      "issuetype": {{"name": "Test"}}
-    }},
-    "steps": [
-      {{
-        "action": "DADO que [precondición específica]",
-        "data": "Datos de entrada específicos o 'N/A' si no aplica",
-        "result": "ENTONCES [resultado esperado específico y verificable]"
+{{
+  "criticos": [
+    {{
+      "testtype": "Manual",
+      "fields": {{
+        "summary": "Título corto crítico",
+        "description": "Descripción del caso crítico",
+        "project": {{ "key": "DEUN" }},
+        "issuetype": {{ "name": "Test" }}
       }},
-      {{
-        "action": "CUANDO [acción específica del usuario]",
-        "data": "Datos adicionales o parámetros",
-        "result": "El sistema debe [comportamiento esperado]"
-      }}
-    ],
-    "xray_test_repository_folder": "{xray_path}",
-    "xray_test_sets": ["DEUN-319"]
-  }}
-]
-```
+      "steps": [
+        {{ "action": "DADO …", "data": "…", "result": "ENTONCES …" }},
+        {{ "action": "CUANDO …", "data": "…", "result": "…" }}
+      ],
+      "testPath": "{{xray_path}}/Críticos",
+      "xray_test_sets": ["DEUN-319"]
+    }}
+  ],
+  "importantes": [
+    {{
+      "testtype": "Manual",
+      "fields": {{ ... }},
+      "steps": [ /* … */ ],
+      "testPath": "{{xray_path}}/Importantes",
+      "xray_test_sets": ["DEUN-319"]
+    }}
+  ],
+  "opcionales": [
+    {{
+      "testtype": "Manual",
+      "fields": {{ "summary": "", "description": "", … }},
+      "steps": [ /* … */ ],
+      "testPath": "{{xray_path}}/Opcionales",
+      "xray_test_sets": ["DEUN-319"]
+    }}
+  ]
+}}
 
 4. **REQUISITOS ESPECÍFICOS**:
    - Usa sintaxis Gherkin (DADO/CUANDO/ENTONCES) en los steps
@@ -433,14 +442,13 @@ class DeepSeekService:
    - "Verificar redireccionamiento después de acción exitosa"
 
 **IMPORTANTE**: 
-- Responde ÚNICAMENTE con el JSON array
-- NO incluyas texto adicional, explicaciones o comentarios
-- Asegúrate de que el JSON sea válido y parseable
-- Cada test debe estar basado en los criterios de la HU refinada
-- Los tests deben ser ejecutables manualmente por un QA
+   - Responde ÚNICAMENTE con el objeto JSON mostrado arriba; sin texto adicional
+   - NO incluyas texto adicional, explicaciones o comentarios
+   - Asegúrate de que el JSON sea válido y parseable
+   - Cada test debe estar basado en los criterios de la HU refinada
+   - Los tests deben ser ejecutables manualmente por un QA
 
-**RECUERDA**: Tu respuesta debe ser SOLO el array JSON de casos de test, nada más."""
-
+**RECUERDA**: Tu respuesta debe ser SOLO el array JSON de casos de test, nada más"""
         payload = {
             "model": "mistralai/mistral-small-3.2-24b-instruct", 
             "messages": [{"role": "user", "content": prompt}],
@@ -568,13 +576,13 @@ class DeepSeekService:
                             
                             # Actualizar la ruta de cada test para incluir el subdirectorio
                             if i < (total_tests // 3):  # Primeros tests → Críticos
-                                test["xray_test_repository_folder"] = f"{xray_path}/Críticos"
+                                test["testPath"] = f"{xray_path}/Críticos"
                                 criticos.append(test)
                             elif i < (2 * total_tests // 3):  # Tests medios → Importantes
-                                test["xray_test_repository_folder"] = f"{xray_path}/Importantes"  
+                                test["testPath"] = f"{xray_path}/Importantes"  
                                 importantes.append(test)
                             else:  # Últimos tests → Opcionales
-                                test["xray_test_repository_folder"] = f"{xray_path}/Opcionales"
+                                test["testPath"] = f"{xray_path}/Opcionales"
                                 opcionales.append(test)
                         
                         classified_tests = {
@@ -641,7 +649,7 @@ class DeepSeekService:
                             if not isinstance(test, dict):
                                 raise ValueError(f"Test {i+1} en categoría {category_name} no es un objeto válido")
                             
-                            required_fields = ['testtype', 'fields', 'steps', 'xray_test_repository_folder']
+                            required_fields = ['testtype', 'fields', 'steps', 'testPath']
                             for field in required_fields:
                                 if field not in test:
                                     raise ValueError(f"Test {i+1} en categoría {category_name} falta campo requerido: {field}")
