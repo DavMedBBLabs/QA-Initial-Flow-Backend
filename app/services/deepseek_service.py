@@ -18,7 +18,7 @@ class DeepSeekService:
             "X-Title": "RIWI QA Backend"
         }
     
-    def refine_hu(self, title: str, description: str, acceptance_criteria: str = "", feature: str = "", module: str = "") -> Tuple[str, str]:
+    def refine_hu(self, title: str, description: str, acceptance_criteria: str = "", feature: str = "", module: str = "", language: str = "es") -> Tuple[str, str]:
         if not title or len(title.strip()) < 5:
             raise Exception("El título de la HU es muy corto o está vacío")
         
@@ -27,8 +27,165 @@ class DeepSeekService:
         print(f"   📄 Descripción: {len(description)} caracteres")
         print(f"   🏷️ Feature: {feature}")
         print(f"   📦 Módulo: {module}")
+        print(f"   🌐 Idioma: {language}")
         
-        prompt = f"""Eres un experto en Refinamiento de User Stories y QA con más de 10 años de experiencia. Tu tarea es refinar la siguiente historia de usuario aplicando metodología de evaluación de criticidad y generando criterios de aceptación en formato Gherkin.
+        # Seleccionar el prompt según el idioma
+        if language == "en":
+            print("🔄 Translating input fields to English...")
+            title = self._translate_to_english(title)
+            description = self._translate_to_english(description)
+            acceptance_criteria = self._translate_to_english(acceptance_criteria)
+            feature = self._translate_to_english(feature)
+            module = self._translate_to_english(module)
+            prompt = self._get_english_prompt(title, description, acceptance_criteria, feature, module)
+            print(f"🔍 DEBUG: Usando prompt en INGLÉS")
+        else:
+            prompt = self._get_spanish_prompt(title, description, acceptance_criteria, feature, module)
+            print(f"🔍 DEBUG: Usando prompt en ESPAÑOL")
+        
+        print(f"🔍 DEBUG: Prompt seleccionado (primeros 200 chars):")
+        print(f"   {prompt[:200]}...")
+        
+        payload = {
+            "model": "openrouter/horizon-beta",  # Cambiar a un modelo más neutral
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 8000,
+            "temperature": 0.3
+        }
+        
+        print(f"🚀 Enviando request de alta calidad a Gemma...")
+        print(f"   📊 Max tokens: {payload['max_tokens']}")
+        print(f"   📝 Prompt length: {len(prompt)} characters")
+        print(f"   🌐 Language: {language}")
+        
+        try:
+            response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=90)
+            
+            if response.status_code != 200:
+                print(f"❌ Gemma API error: {response.status_code}")
+                print(f"❌ Response: {response.text}")
+                raise Exception(f"Gemma API error: {response.status_code}")
+            
+            result = response.json()
+            
+            if 'choices' not in result or not result['choices']:
+                raise Exception("Invalid API response format")
+            
+            content = result['choices'][0]['message']['content']
+            
+            print(f"✅ Gemma response received:")
+            print(f"   📏 Content length: {len(content)} characters")
+            
+            print(f"   📄 Content preview (primeros 500 chars):")
+            print(f"   {content[:500]}...")
+            
+            # Debug: Verificar si la respuesta está en inglés
+            print(f"🔍 DEBUG: Verificando idioma de la respuesta:")
+            if 'EVALUACIÓN AUTOMÁTICA DE CRITICIDAD' in content[:1000]:
+                print(f"   ⚠️  La IA respondió en ESPAÑOL aunque se solicitó {language.upper()}")
+                # Si se solicitó inglés pero la IA respondió en español, traducir
+                if language == "en":
+                    print(f"   🔄 Traduciendo contenido de español a inglés...")
+                    content = self._translate_to_english(content)
+                    print(f"   ✅ Contenido traducido a inglés")
+            elif 'AUTOMATIC CRITICALITY ASSESSMENT' in content[:1000]:
+                print(f"   ✅ La IA respondió en INGLÉS correctamente")
+            else:
+                print(f"   ❓ No se puede determinar el idioma de la respuesta")
+            
+            possible_plain_markers = [
+                "## CONSIDERACIONES TÉCNICAS",
+                "## CRITERIOS DE DONE",
+                "## TECHNICAL CONSIDERATIONS",
+                "## DONE CRITERIA",
+                "CONSIDERACIONES TÉCNICAS",
+                "CRITERIOS DE DONE"
+            ]
+            
+            plain_text_start = -1
+            
+            for marker in possible_plain_markers:
+                pos = content.find(marker)
+                if pos != -1:
+                    plain_text_start = pos
+                    print(f"   ✅ Found separator marker: '{marker}' at position {pos}")
+                    break
+            
+            print(f"   📍 Separator position: {plain_text_start}")
+            
+            plain_text = content.strip()
+            markdown_text = content.strip()
+            
+            print(f"✅ Using full content for both fields:")
+            print(f"   📝 Plain text: {len(plain_text)} characters")
+            print(f"   📋 Markdown: {len(markdown_text)} characters")
+            
+            if len(plain_text) < 1000:
+                print(f"⚠️ WARNING: Contenido muy corto ({len(plain_text)} chars)")
+                if language == "en":
+                    fallback = f"""
+## AUTOMATIC CRITICALITY ASSESSMENT
+**Business Impact**: 4/5 - Important functionality for the business
+**Usage Frequency**: 3/5 - Regular use by users  
+**Technical Complexity**: 3/5 - Medium complexity implementation
+**Failure Impact**: 4/5 - Failure would significantly affect users
+**Novelty**: 2/5 - Known functionality with established patterns
+**TOTAL SCORE**: 16/25
+**CLASSIFICATION**: 🟠 HIGH
+
+## REFINED USER STORY
+{title}
+
+{content}
+
+## TECHNICAL CONSIDERATIONS
+- Implement client and server-side validations
+- Consider performance for large data volumes
+- Ensure compatibility with different browsers
+
+## DONE CRITERIA
+- Functionality implemented and tested
+- Validations working correctly
+- Documentation updated
+"""
+                else:
+                    fallback = f"""
+## EVALUACIÓN AUTOMÁTICA DE CRITICIDAD
+**Impacto Negocio**: 4/5 - Funcionalidad importante para el negocio
+**Frecuencia Uso**: 3/5 - Uso regular por parte de los usuarios  
+**Complejidad Técnica**: 3/5 - Implementación de complejidad media
+**Impacto de Falla**: 4/5 - Falla afectaría significativamente a los usuarios
+**Novedad**: 2/5 - Funcionalidad conocida con patrones establecidos
+**PUNTUACIÓN TOTAL**: 16/25
+**CLASIFICACIÓN**: 🟠 ALTA
+
+## HISTORIA DE USUARIO REFINADA
+{title}
+
+{content}
+
+## CONSIDERACIONES TÉCNICAS
+- Implementar validaciones del lado cliente y servidor
+- Considerar rendimiento para grandes volúmenes de datos
+- Asegurar compatibilidad con diferentes navegadores
+
+## CRITERIOS DE DONE
+- Funcionalidad implementada y probada
+- Validaciones funcionando correctamente
+- Documentación actualizada
+"""
+                plain_text = fallback
+                markdown_text = fallback
+            
+            return plain_text, markdown_text
+            
+        except Exception as e:
+            print(f"❌ Error during refinement: {str(e)}")
+            raise Exception(f"Error durante el refinamiento: {str(e)}")
+    
+    def _get_spanish_prompt(self, title: str, description: str, acceptance_criteria: str, feature: str, module: str) -> str:
+        """Genera el prompt en español"""
+        return f"""Eres un experto en Refinamiento de User Stories y QA con más de 10 años de experiencia. Tu tarea es refinar la siguiente historia de usuario aplicando metodología de evaluación de criticidad y generando criterios de aceptación en formato Gherkin.
 
 **INFORMACIÓN DE LA HISTORIA DE USUARIO:**
 - **Título**: {title}
@@ -169,98 +326,97 @@ class DeepSeekService:
 - Esta información será usada por desarrolladores y testers
 - Incluye SIEMPRE los 5 niveles de criterios de aceptación"""
 
-        payload = {
-            "model": "mistralai/mistral-small-3.2-24b-instruct",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 8000,
-            "temperature": 0.3
-        }
-        
-        print(f"🚀 Enviando request de alta calidad a Gemma...")
-        print(f"   📊 Max tokens: {payload['max_tokens']}")
-        print(f"   📝 Prompt length: {len(prompt)} characters")
-        
-        try:
-            response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=90)
-            
-            if response.status_code != 200:
-                print(f"❌ Gemma API error: {response.status_code}")
-                print(f"❌ Response: {response.text}")
-                raise Exception(f"Gemma API error: {response.status_code}")
-            
-            result = response.json()
-            
-            if 'choices' not in result or not result['choices']:
-                raise Exception("Invalid API response format")
-            
-            content = result['choices'][0]['message']['content']
-            
-            print(f"✅ Gemma response received:")
-            print(f"   📏 Content length: {len(content)} characters")
-            
-            print(f"   📄 Content preview (primeros 500 chars):")
-            print(f"   {content[:500]}...")
-            
-            possible_plain_markers = [
-                "## CONSIDERACIONES TÉCNICAS",
-                "## CRITERIOS DE DONE",
-                "CONSIDERACIONES TÉCNICAS",
-                "CRITERIOS DE DONE"
-            ]
-            
-            plain_text_start = -1
-            
-            for marker in possible_plain_markers:
-                pos = content.find(marker)
-                if pos != -1:
-                    plain_text_start = pos
-                    print(f"   ✅ Found separator marker: '{marker}' at position {pos}")
-                    break
-            
-            print(f"   📍 Separator position: {plain_text_start}")
-            
-            plain_text = content.strip()
-            markdown_text = content.strip()
-            
-            print(f"✅ Using full content for both fields:")
-            print(f"   📝 Plain text: {len(plain_text)} characters")
-            print(f"   📋 Markdown: {len(markdown_text)} characters")
-            
-            if len(plain_text) < 1000:
-                print(f"⚠️ WARNING: Contenido muy corto ({len(plain_text)} chars)")
-                fallback = f"""
-## EVALUACIÓN AUTOMÁTICA DE CRITICIDAD
-**Impacto Negocio**: 4/5 - Funcionalidad importante para el negocio
-**Frecuencia Uso**: 3/5 - Uso regular por parte de los usuarios  
-**Complejidad Técnica**: 3/5 - Implementación de complejidad media
-**Impacto de Falla**: 4/5 - Falla afectaría significativamente a los usuarios
-**Novedad**: 2/5 - Funcionalidad conocida con patrones establecidos
-**PUNTUACIÓN TOTAL**: 16/25
-**CLASIFICACIÓN**: 🟠 ALTA
+    def _get_english_prompt(self, title: str, description: str, acceptance_criteria: str, feature: str, module: str) -> str:
+        """Generates the full English prompt with strict instructions"""
+        return f"""
+            You are a senior QA engineer and expert in software refinement.
 
-## HISTORIA DE USUARIO REFINADA
-{title}
+            ⚠️ VERY IMPORTANT:
+            - WRITE EVERYTHING in **ENGLISH ONLY**
+            - DO NOT use Spanish at all, even if the original input is in Spanish.
+            - Responses in Spanish will be rejected.
+            - The result will be published in a Jira ticket used by English-speaking developers.
 
-{content}
+            ---
 
-## CONSIDERACIONES TÉCNICAS
-- Implementar validaciones del lado cliente y servidor
-- Considerar rendimiento para grandes volúmenes de datos
-- Asegurar compatibilidad con diferentes navegadores
+            ## USER STORY INFORMATION:
+            - **Title**: {title}
+            - **Description**: {description if description else "No description provided"}
+            - **Original Acceptance Criteria**: {acceptance_criteria if acceptance_criteria else "Not provided"}
+            - **Feature or Epic**: {feature if feature else "Not specified"}
+            - **System Module**: {module if module else "Not specified"}
 
-## CRITERIOS DE DONE
-- Funcionalidad implementada y probada
-- Validaciones funcionando correctamente
-- Documentación actualizada
-"""
-                plain_text = fallback
-                markdown_text = fallback
-            
-            return plain_text, markdown_text
-            
-        except Exception as e:
-            print(f"❌ Error during refinement: {str(e)}")
-            raise Exception(f"Error durante el refinamiento: {str(e)}")
+            ---
+
+            ## INSTRUCTIONS:
+
+            1. You MUST generate a DETAILED and COMPLETE response (at least 3000 characters).
+            2. NEVER return short or vague answers.
+            3. ALWAYS include 5 levels of acceptance criteria using Gherkin syntax.
+            4. EACH acceptance criterion must include multiple realistic test scenarios.
+            5. This will be consumed by testers and developers in Azure DevOps.
+
+            ---
+
+            ## REQUIRED OUTPUT STRUCTURE:
+
+            ### AUTOMATIC CRITICALITY ASSESSMENT
+            **Business Impact**: [X]/5 - Justify the score clearly  
+            **Usage Frequency**: [X]/5 - Justify  
+            **Technical Complexity**: [X]/5 - Justify  
+            **Failure Impact**: [X]/5 - Justify  
+            **Novelty**: [X]/5 - Justify  
+            **TOTAL SCORE**: [X]/25  
+            **CLASSIFICATION**: 🔴/🟠/🟡/🟢 [Critical / High / Medium / Low]
+
+            ---
+
+            ### REFINED USER STORY
+            As a [specific user role], I want to [detailed functionality], so that [clear, measurable value].
+
+            Detailed user flow steps:
+            1. [...]
+            2. [...]
+            3. [...]
+
+            ---
+
+            ### ACCEPTANCE CRITERIA (use Gherkin syntax)
+
+            #### 1. Business Value Scenario
+            **Scenario**: [...]
+            **Given** [starting condition]
+            **When** [user performs action]
+            **Then** [expected result]
+            **And** [...]
+
+            #### 2. Complete Functional Flow
+            **Scenario**: [...]
+            **Given** [...]
+            **When** [...]
+            **Then** [...]
+            **And** [...]
+
+            #### 3. UI Interaction
+            ...
+
+            #### 4. Data Validation
+            ...
+
+            #### 5. Edge Cases & Error Handling
+            ...
+
+            ---
+
+            ### TECHNICAL CONSIDERATIONS
+            - [...technical constraints, architecture notes...]
+
+            ### DONE CRITERIA
+            - All flows implemented and tested
+            - Validations confirmed
+            - Documentation updated
+        """
+
     
     def re_refine_hu(self, feedback: str, original_response: str) -> tuple:
         prompt = f"""Eres un experto en Refinamiento de User Stories y QA. Tu tarea es RE-REFINAR una historia de usuario que fue RECHAZADA por un QA. Debes aplicar específicamente el feedback recibido para corregir los problemas identificados.
@@ -324,7 +480,7 @@ class DeepSeekService:
 - CONSERVA todo lo que no fue mencionado como problemático"""
 
         payload = {
-            "model": "mistralai/mistral-small-3.2-24b-instruct",
+            "model": "openrouter/horizon-beta",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 8000,
             "temperature": 0.3
@@ -368,89 +524,71 @@ class DeepSeekService:
         # Extraer el número de HU para usar en la carpeta
         hu_number = azure_id.replace('HU-', '') if 'HU-' in azure_id else azure_id
         
-        prompt = f"""Eres un experto QA especializado en generación de casos de test. Tu tarea es generar casos de test en formato XRay/Jira basados en la Historia de Usuario refinada proporcionada.
+        # Extraer solo los escenarios del contenido completo
+        simplified_content = self._extract_scenarios_for_xray(refined_response)
+        
+        prompt = f"""
+You are an expert test case generator for XRay.
 
-**HISTORIA DE USUARIO REFINADA:**
-{{refined_response}}
+Your task is to convert each of the provided scenarios into a manual test case in JSON format.
 
-**INFORMACIÓN DEL TEST:**
-- **Ruta XRay**: {{xray_path}}
-- **HU ID**: {{azure_id}}
+---
 
-**INSTRUCCIONES PARA GENERACIÓN DE TESTS:**
+## INSTRUCTIONS:
 
-1. **ANALIZA LA HU REFINADA**: Identifica todos los criterios de aceptación, escenarios principales, casos edge y validaciones.
+1. Each scenario is labeled with a tag like:
+   - "**Main Scenario:**"
+   - "**Alternative Scenario:**"
+   - "**Edge Scenario:**"
 
-2. GENERA LA MAYOR CANTIDAD POSIBLE DE CASOS DE TEST.
-   • Cubre flujo principal, validaciones, casos límite, escenarios negativos, manejo de errores, UI/UX, móvil, red y seguridad.  
-   • Procura un caso de test por cada criterio/escenario identificado.
+2. For each scenario:
+   - Extract the scenario name (the bold title).
+   - Convert the steps DADO, CUANDO, ENTONCES into test steps.
+   - Use the scenario name as the `summary`.
+   - Assign priority and folder based on type:
+     - Main → "High" and folder "{xray_path}/Criticos"
+     - Alternative → "Medium" and folder "{xray_path}/Importantes"
+     - Edge → "Low" and folder "{xray_path}/Opcionales"
 
-3. **FORMATO DE SALIDA REQUERIDO**  
-Devuelve **UN OBJETO JSON** con las tres claves siguientes; cada clave contiene una lista de test cases:
+3. Use the following EXACT format for each test:
 
-```json
 {{
-  "criticos": [
-    {{
-      "testtype": "Manual",
-      "fields": {{
-        "summary": "Título corto crítico",
-        "description": "Descripción del caso crítico",
-        "project": {{ "key": "DEUN" }},
-        "issuetype": {{ "name": "Test" }}
-      }},
-      "steps": [
-        {{ "action": "DADO …", "data": "…", "result": "ENTONCES …" }},
-        {{ "action": "CUANDO …", "data": "…", "result": "…" }}
-      ],
-      "testPath": "{{xray_path}}/Críticos",
-      "xray_test_sets": ["DEUN-319"]
-    }}
+  "testtype": "Manual",
+  "fields": {{
+    "summary": "[Scenario name]",
+    "description": "[Test description extracted from the scenario]",
+    "project": {{ "key": "DEUN" }},
+    "issuetype": {{ "name": "Test" }},
+    "priority": {{ "name": "[High|Medium|Low]" }}
+  }},
+  "steps": [
+    {{ "action": "[DADO step]", "data": "", "result": "[ENTONCES step]" }}
   ],
-  "importantes": [
-    {{
-      "testtype": "Manual",
-      "fields": {{ ... }},
-      "steps": [ /* … */ ],
-      "testPath": "{{xray_path}}/Importantes",
-      "xray_test_sets": ["DEUN-319"]
-    }}
-  ],
-  "opcionales": [
-    {{
-      "testtype": "Manual",
-      "fields": {{ "summary": "", "description": "", … }},
-      "steps": [ /* … */ ],
-      "testPath": "{{xray_path}}/Opcionales",
-      "xray_test_sets": ["DEUN-319"]
-    }}
-  ]
+  "xray_test_repository_folder": "[RUTA_XRAY]",
+  "xray_test_sets": ["DEUN-319"]
 }}
 
-4. **REQUISITOS ESPECÍFICOS**:
-   - Usa sintaxis Gherkin (DADO/CUANDO/ENTONCES) en los steps
-   - Cada test debe ser específico y ejecutable
-   - Include datos de entrada realistas cuando sea necesario
-   - Los resultados esperados deben ser verificables
-   - Summary debe ser conciso pero descriptivo
-   - Description debe explicar qué se está probando
+---
 
-5. **EJEMPLOS DE BUENOS TEST CASES**:
-   - "Verificar login exitoso con credenciales válidas"
-   - "Validar mensaje de error con email inválido"
-   - "Comprobar límite máximo de caracteres en campo nombre"
-   - "Verificar redireccionamiento después de acción exitosa"
+## SCENARIOS:
 
-**IMPORTANTE**: 
-   - Responde ÚNICAMENTE con el objeto JSON mostrado arriba; sin texto adicional
-   - NO incluyas texto adicional, explicaciones o comentarios
-   - Asegúrate de que el JSON sea válido y parseable
-   - Cada test debe estar basado en los criterios de la HU refinada
-   - Los tests deben ser ejecutables manualmente por un QA
+{simplified_content}
 
-**RECUERDA**: Tu respuesta debe ser SOLO el array JSON de casos de test, nada más"""
+---
+
+🔁 IMPORTANT: Return a JSON object exactly like this, grouping tests by category:
+
+{{
+  "criticos": [ ... ],
+  "importantes": [ ... ],
+  "opcionales": [ ... ]
+}}
+
+❌ DO NOT include comments, explanations, markdown, or code block formatting like ```json.  
+✅ ONLY return the JSON object.
+"""
         payload = {
-            "model": "mistralai/mistral-small-3.2-24b-instruct", 
+            "model": "openrouter/horizon-beta", 
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 8000,
             "temperature": 0.2  # Menos creatividad para más precisión en formato JSON
@@ -576,13 +714,13 @@ Devuelve **UN OBJETO JSON** con las tres claves siguientes; cada clave contiene 
                             
                             # Actualizar la ruta de cada test para incluir el subdirectorio
                             if i < (total_tests // 3):  # Primeros tests → Críticos
-                                test["testPath"] = f"{xray_path}/Críticos"
+                                test["xray_test_repository_folder"] = f"{xray_path}/Criticos"
                                 criticos.append(test)
                             elif i < (2 * total_tests // 3):  # Tests medios → Importantes
-                                test["testPath"] = f"{xray_path}/Importantes"  
+                                test["xray_test_repository_folder"] = f"{xray_path}/Importantes"  
                                 importantes.append(test)
                             else:  # Últimos tests → Opcionales
-                                test["testPath"] = f"{xray_path}/Opcionales"
+                                test["xray_test_repository_folder"] = f"{xray_path}/Opcionales"
                                 opcionales.append(test)
                         
                         classified_tests = {
@@ -609,6 +747,21 @@ Devuelve **UN OBJETO JSON** con las tres claves siguientes; cada clave contiene 
                             if not isinstance(parsed_data[category], list):
                                 print(f"⚠️ La categoría {category} no es una lista. Convirtiendo.")
                                 parsed_data[category] = []
+                        
+                        # ✅ APLICAR TESTPATH A TODOS LOS TESTS CLASIFICADOS
+                        category_paths = {
+                            'criticos': f"{xray_path}/Criticos",
+                            'importantes': f"{xray_path}/Importantes", 
+                            'opcionales': f"{xray_path}/Opcionales"
+                        }
+                        
+                        for category, tests in parsed_data.items():
+                            if isinstance(tests, list):
+                                for test in tests:
+                                    if isinstance(test, dict):
+                                        # Aplicar el testPath correspondiente a la categoría
+                                        test["xray_test_repository_folder"] = category_paths.get(category, xray_path)
+                                        print(f"   📂 Test en {category}: {test.get('fields', {}).get('summary', 'Sin nombre')} → {test['xray_test_repository_folder']}")
                         
                         classified_tests = parsed_data
                         
@@ -649,7 +802,7 @@ Devuelve **UN OBJETO JSON** con las tres claves siguientes; cada clave contiene 
                             if not isinstance(test, dict):
                                 raise ValueError(f"Test {i+1} en categoría {category_name} no es un objeto válido")
                             
-                            required_fields = ['testtype', 'fields', 'steps', 'testPath']
+                            required_fields = ['testtype', 'fields', 'steps', 'xray_test_repository_folder']
                             for field in required_fields:
                                 if field not in test:
                                     raise ValueError(f"Test {i+1} en categoría {category_name} falta campo requerido: {field}")
@@ -709,3 +862,110 @@ Devuelve **UN OBJETO JSON** con las tres claves siguientes; cada clave contiene 
         
         # Si llegamos aquí, todos los intentos fallaron
         raise Exception(f"Fallo en generación de tests después de {max_attempts} intentos con múltiples estrategias")
+    
+    def _extract_scenarios_for_xray(self, content: str) -> str:
+        """Extrae solo los escenarios del contenido de la HU refinada para XRay"""
+        
+        import re
+        
+        # Buscar todos los escenarios
+        scenarios = []
+        
+        # Patrones para encontrar escenarios
+        patterns = [
+            r'\*\*Escenario Principal[^*]*?\*\*[^*]*?Dado[^*]*?Cuando[^*]*?Entonces[^*]*?(?=\*\*|$)',
+            r'\*\*Escenario Alternativo[^*]*?\*\*[^*]*?Dado[^*]*?Cuando[^*]*?Entonces[^*]*?(?=\*\*|$)',
+            r'\*\*Escenario Edge[^*]*?\*\*[^*]*?Dado[^*]*?Cuando[^*]*?Entonces[^*]*?(?=\*\*|$)'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, content, re.DOTALL)
+            scenarios.extend(matches)
+        
+        # Si no encuentra con el patrón complejo, buscar líneas que contengan "Escenario"
+        if not scenarios:
+            lines = content.split('\n')
+            current_scenario = ""
+            in_scenario = False
+            
+            for line in lines:
+                if "Escenario Principal" in line or "Escenario Alternativo" in line or "Escenario Edge" in line:
+                    if current_scenario:
+                        scenarios.append(current_scenario.strip())
+                    current_scenario = line
+                    in_scenario = True
+                elif in_scenario and (line.strip().startswith('Dado') or line.strip().startswith('Cuando') or line.strip().startswith('Entonces') or line.strip().startswith('Y')):
+                    current_scenario += "\n" + line
+                elif in_scenario and line.strip() == "":
+                    continue
+                elif in_scenario:
+                    current_scenario += "\n" + line
+            
+            if current_scenario:
+                scenarios.append(current_scenario.strip())
+        
+        # Categorizar escenarios
+        criticos = []
+        importantes = []
+        opcionales = []
+        
+        for scenario in scenarios:
+            if "Escenario Principal" in scenario:
+                criticos.append(scenario)
+            elif "Escenario Alternativo" in scenario:
+                importantes.append(scenario)
+            elif "Escenario Edge" in scenario:
+                opcionales.append(scenario)
+        
+        # Crear contenido simplificado
+        simplified_content = "## ESCENARIOS EXTRAÍDOS\n\n"
+        
+        if criticos:
+            simplified_content += "### ESCENARIOS PRINCIPALES\n"
+            for i, scenario in enumerate(criticos, 1):
+                simplified_content += f"{i}. {scenario}\n\n"
+        
+        if importantes:
+            simplified_content += "### ESCENARIOS ALTERNATIVOS\n"
+            for i, scenario in enumerate(importantes, 1):
+                simplified_content += f"{i}. {scenario}\n\n"
+        
+        if opcionales:
+            simplified_content += "### ESCENARIOS EDGE\n"
+            for i, scenario in enumerate(opcionales, 1):
+                simplified_content += f"{i}. {scenario}\n\n"
+        
+        return simplified_content
+
+    def _translate_to_english(self, content: str) -> str:
+        """Traduce el contenido de español a inglés usando la IA"""
+        try:
+            translation_prompt = f"""Translate the following Spanish text to English. Keep the same structure and formatting:
+
+{content}
+
+Translate to English:"""
+            
+            payload = {
+                "model": "openrouter/gpt-4o-mini",
+                "messages": [{"role": "user", "content": translation_prompt}],
+                "max_tokens": 8000,
+                "temperature": 0.1
+            }
+            
+            print(f"🔍 DEBUG: Traduciendo contenido de español a inglés...")
+            response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=90)
+            
+            if response.status_code != 200:
+                print(f"❌ Error en traducción: {response.status_code}")
+                return content  # Retornar contenido original si falla
+            
+            result = response.json()
+            translated_content = result['choices'][0]['message']['content']
+            
+            print(f"✅ Traducción completada")
+            return translated_content
+            
+        except Exception as e:
+            print(f"❌ Error durante traducción: {str(e)}")
+            return content  # Retornar contenido original si falla
